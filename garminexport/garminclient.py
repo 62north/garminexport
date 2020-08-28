@@ -10,6 +10,7 @@ import os.path
 import re
 import sys
 import zipfile
+
 from builtins import range
 from functools import wraps
 from io import BytesIO
@@ -96,10 +97,31 @@ class GarminClient(object):
 
     def connect(self):
         self.session = requests.Session()
-        self._authenticate()
+
+        try:
+            with open("cookies.txt", "rt") as fp:
+                self.session.cookies = requests.utils.cookiejar_from_dict(json.load(fp))
+        except:
+            print("failed to load cookies")
+            pass
+
+        resp = self.session.get("https://connect.garmin.com/modern")
+        if resp.status_code != 200:
+            print("authenticating")
+            self._authenticate()
+        else:
+            print("skip authenticating")
 
     def disconnect(self):
         if self.session:
+
+            try:
+                with open("cookies.txt", "wt") as fp:
+                    fp.write(json.dumps(requests.utils.dict_from_cookiejar(self.session.cookies)))
+            except:
+                print("failed to save cookies")                
+                pass
+            
             self.session.close()
             self.session = None
 
@@ -116,7 +138,7 @@ class GarminClient(object):
         headers = {'origin': 'https://sso.garmin.com'}
         auth_response = self.session.post(
             SSO_LOGIN_URL, headers=headers, params=request_params, data=form_data)
-        log.debug("got auth response: %s", auth_response.text)
+        print("got auth response: %s", auth_response.text)
         if auth_response.status_code != 200:
             raise ValueError("authentication failure: did you enter valid credentials?")
         auth_ticket_url = self._extract_auth_ticket_url(auth_response.text)
@@ -353,7 +375,7 @@ class GarminClient(object):
         # this activity was uploaded in a different format (e.g. gpx/tcx)
         # and cannot be exported to fit
         return orig_file if fmt == 'fit' else None
-
+    
     @require_session
     def upload_activity(self, file, format=None, name=None, description=None, activity_type=None, private=None):
         """Upload a GPX, TCX, or FIT file for an activity.
